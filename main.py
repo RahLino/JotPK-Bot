@@ -3,10 +3,20 @@ import numpy as np
 import mss
 import pydirectinput
 import time
+from ultralytics import YOLO
 
 # Configuration: Define the screen area of the mini-game
 # You can use a tool like 'PowerToys' or simple print-screen to find these coords
 GAME_AREA = {"top": 100, "left": 100, "width": 600, "height": 600}
+
+# Load YOLO model. For the real game, you would want to train a custom YOLO model
+# on screenshots of Journey of the Prairie King and use it here (e.g., 'prairie_king_model.pt')
+# For now, we use a placeholder model yolov8n.pt
+model = YOLO('yolov8n.pt')
+
+# Assume custom model classes: 0 -> Player, 1 -> Enemy
+PLAYER_CLASS_ID = 0
+ENEMY_CLASS_ID = 1
 
 def process_frame(sct):
     # Capture the screen
@@ -14,33 +24,31 @@ def process_frame(sct):
     img = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
     return img
 
-def find_objects(img, lower_color, upper_color):
-    # Create a mask for the specific color
-    mask = cv2.inRange(img, np.array(lower_color), np.array(upper_color))
-    # Find contours (blobs of that color)
-    contours, _ = cv2.findContours(mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
-    
-    positions = []
-    for cnt in contours:
-        if cv2.contourArea(cnt) > 50:  # Filter small noise
-            M = cv2.moments(cnt)
-            if M["m00"] != 0:
-                cX = int(M["m10"] / M["m00"])
-                cY = int(M["m01"] / M["m00"])
-                positions.append((cX, cY))
-    return positions
-
 def main():
     with mss.mss() as sct:
         while True:
             frame = process_frame(sct)
             
-            # 1. Find Player (Example Color: Cowboy Hat Brown)
-            # You must tune these RGB values!
-            player_pos = find_objects(frame, [100, 50, 50], [130, 80, 80])
+            # Run YOLO inference
+            results = model(frame, verbose=False)
+
+            player_pos = []
+            enemies = []
             
-            # 2. Find Enemies (Example Color: Orc Green)
-            enemies = find_objects(frame, [50, 100, 50], [80, 150, 80])
+            # Process results
+            for result in results:
+                boxes = result.boxes
+                for box in boxes:
+                    # Get class ID
+                    cls_id = int(box.cls[0].item())
+                    # Get center coordinates
+                    x1, y1, x2, y2 = box.xyxy[0].tolist()
+                    cx, cy = int((x1 + x2) / 2), int((y1 + y2) / 2)
+
+                    if cls_id == PLAYER_CLASS_ID:
+                        player_pos.append((cx, cy))
+                    elif cls_id == ENEMY_CLASS_ID:
+                        enemies.append((cx, cy))
             
             if player_pos and enemies:
                 px, py = player_pos[0]
